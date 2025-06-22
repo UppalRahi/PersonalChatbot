@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Personal Voice Bot</title>
+<style>
+/* All your existing styles as is… (keeping it short for brevity) */
+* {margin: 0; padding: 0; box-sizing: border-box;}
+body {font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh;}
+.container {background: #fff; border-radius: 20px; padding: 30px; max-width: 600px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.1);}
+.header {text-align: center; margin-bottom: 30px;}
+.chat-container {height: 400px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 10px; padding: 20px; margin-bottom: 20px; background: #fafafa;}
+.message {margin-bottom: 15px; padding: 10px 15px; border-radius: 15px; max-width: 80%; word-wrap: break-word;}
+.user-message {background: #007bff; color: #fff; margin-left: auto;}
+.bot-message {background: #e9ecef; color: #333;}
+.controls {display: flex; gap: 10px; margin-bottom: 20px;}
+.btn {padding: 12px 24px; border-radius: 25px; border: none; font-size: 16px; flex: 1;}
+.btn-primary {background: linear-gradient(45deg, #007bff, #0056b3); color: #fff;}
+.btn-secondary {background: #6c757d; color: #fff;}
+.input-section {display: flex; gap: 10px;}
+.text-input {flex: 1; padding: 12px; border-radius: 25px; border: 1px solid #ddd;}
+.status {text-align: center; margin: 10px 0; font-weight: bold;}
+.recording {color: #dc3545;}
+.processing {color: #ffc107;}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header"><h1>🎤 Personal Voice Bot</h1></div>
+    <div class="chat-container" id="chatContainer">
+        <div class="message bot-message">Hello! Ask me anything...</div>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="controls">
+        <button class="btn btn-primary" id="recordBtn">🎤 Start Recording</button>
+        <button class="btn btn-secondary" id="stopBtn" disabled>⏹️ Stop Recording</button>
+    </div>
+    <div class="input-section">
+        <input type="text" class="text-input" id="textInput" placeholder="Type your question...">
+        <button class="btn btn-primary" id="sendBtn">Send</button>
+    </div>
+</div>
+
+<script>
+const WEBHOOK_URL = "https://pratypandey.app.n8n.cloud/webhook/223f2493-753d-4290-94f1-ebfec893db2c";
+
+// ✅ Session ID generation
+let sessionId = localStorage.getItem('sessionId');
+if (!sessionId) {
+    sessionId = 'sess_' + Math.random().toString(36).substring(2) + Date.now();
+    localStorage.setItem('sessionId', sessionId);
+}
+
+const chatContainer = document.getElementById('chatContainer');
+const recordBtn = document.getElementById('recordBtn');
+const stopBtn = document.getElementById('stopBtn');
+const statusEl = document.getElementById('status');
+const textInput = document.getElementById('textInput');
+const sendBtn = document.getElementById('sendBtn');
+
+let recognition;
+
+if ('webkitSpeechRecognition' in window) {
+    recognition = new webkitSpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+}
+
+// ✅ Event Listeners
+recordBtn.addEventListener('click', startRecording);
+stopBtn.addEventListener('click', stopRecording);
+sendBtn.addEventListener('click', sendTextInput);
+textInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendTextInput();
+});
+
+// ✅ Speech Functions
+function startRecording() {
+    if (!recognition) {
+        alert('Speech recognition not supported!');
+        return;
+    }
+    recordBtn.disabled = true;
+    stopBtn.disabled = false;
+    statusEl.textContent = '🎤 Listening...';
+    statusEl.className = 'status recording';
+    recognition.start();
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        addMessage(transcript, 'user');
+        processQuestion(transcript);
+    };
+    recognition.onerror = (event) => {
+        statusEl.textContent = 'Error: ' + event.error;
+        resetRecording();
+    };
+    recognition.onend = resetRecording;
+}
+function stopRecording() {
+    if (recognition) {
+        recognition.stop();
+    }
+    resetRecording();
+}
+function resetRecording() {
+    recordBtn.disabled = false;
+    stopBtn.disabled = true;
+    statusEl.textContent = '';
+    statusEl.className = 'status';
+}
+
+// ✅ Chat Helpers
+function addMessage(message, type) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${type}-message`;
+    messageDiv.textContent = message;
+    chatContainer.appendChild(messageDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+function sendTextInput() {
+    const question = textInput.value.trim();
+    if (!question) return;
+    addMessage(question, 'user');
+    processQuestion(question);
+    textInput.value = '';
+}
+
+// ✅ Main Logic
+async function processQuestion(question) {
+    statusEl.textContent = '🤔 Sending to server...';
+    statusEl.className = 'status processing';
+    try {
+        const response = await fetch(WEBHOOK_URL, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ sessionId, question })
+        });
+        const data = await response.json();
+        console.log('n8n response:', data); // <-- Add this line for debugging
+
+        let reply = 'Got a response, but no reply field found.';
+        if (data?.output) {
+    reply = data.output;
+} else if (data?.reply) {
+        reply = data.reply;
+       } else if (typeof data === 'string') {
+        reply = data;
+       }
+       
+        addMessage(reply, 'bot');
+        speakResponse(reply);
+    } catch (error) {
+        console.error(error);
+        addMessage('Error contacting the server.', 'bot');
+    } finally {
+        statusEl.textContent = '';
+        statusEl.className = 'status';
+    }
+}
+
+// ✅ Text-To-Speech
+function speakResponse(text) {
+    if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.9;
+        utterance.pitch = 1;
+        speechSynthesis.speak(utterance);
+    }
+}
+</script>
+</body>
+</html>
