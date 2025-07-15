@@ -1,4 +1,4 @@
-# HomeLLC
+
 # Personal Voice Bot
 
 A modern, animated web-based voice bot UI that lets users interact with an AI agent using text or voice. Built with HTML, CSS, and JavaScript, and connects to an n8n AI agent for responses.
